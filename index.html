@@ -543,6 +543,7 @@ hr.div{border:none;border-top:1px solid var(--border);margin:22px 0;}
     <div class="mhandle"></div>
     <div class="mtitle" id="mtitle"></div>
     <div id="mbody"></div>
+    <button class="share-consent-btn" onclick="shareConsent()" style="width:100%;padding:14px;background:var(--gold);color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;border:none;border-radius:10px;cursor:pointer;margin-top:12px;">Compartir PDF</button>
     <button class="mclose" onclick="closeModDirect()">Cerrar</button>
   </div>
 </div>
@@ -556,15 +557,16 @@ const ADMIN_PIN = '0000';
 let fd = {ciudad:null,zona:null,c_leido:false,c_responsabilidad:false,c_devolucion:false,c_cuidados:false,c_fotos:false};
 let esMenor = false, sigPts = [], isDrawing = false, allC = [];
 
-window.onload = () => {
+document.addEventListener('DOMContentLoaded', () => {
   const p = new URLSearchParams(window.location.search);
   if (p.get('admin') === '1') { showRaw('loginScreen'); }
   else {
     showStep('step1');
     const now = new Date();
-    document.getElementById('fechaFirma').textContent = now.toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'});
+    const el = document.getElementById('fechaFirma');
+    if (el) el.textContent = now.toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'});
   }
-};
+});
 
 function showStep(id) {
   ['step1','step2','step3','step4','step5'].forEach(s => {
@@ -810,7 +812,296 @@ function openC(id) {
     ${firma}
   `;
   document.getElementById('moverlay').classList.add('open');
+  // Guardar ID actual para compartir
+  document.getElementById('moverlay').dataset.currentId = id;
 }
+
+async function shareConsent() {
+  const id = document.getElementById('moverlay').dataset.currentId;
+  const c = allC.find(x => x.id === id);
+  if (!c) return;
+
+  const btn = document.querySelector('.share-consent-btn');
+  if (btn) { btn.textContent = 'Generando PDF...'; btn.disabled = true; }
+
+  try {
+    // Cargar jsPDF dinámicamente
+    await new Promise((resolve, reject) => {
+      if (window.jspdf) { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const f = new Date(c.created_at).toLocaleDateString('es-ES', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+
+    const margin = 20;
+    const pageW = 210;
+    const contentW = pageW - margin * 2;
+    let y = 20;
+
+    // Colores
+    const gold = [176, 122, 53];
+    const dark = [26, 26, 26];
+    const gray = [120, 115, 108];
+    const lightGray = [240, 237, 232];
+
+    // Header
+    doc.setFillColor(...dark);
+    doc.rect(0, 0, 210, 36, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'normal');
+    doc.text('EAR PETAL', pageW / 2, 14, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setTextColor(...gold);
+    doc.text('piercing', pageW / 2, 21, { align: 'center' });
+    doc.setFontSize(8);
+    doc.setTextColor(180, 175, 168);
+    doc.text('Rocío Arrebola García · 53670242-H · +34 691806190', pageW / 2, 29, { align: 'center' });
+
+    y = 46;
+
+    // Título
+    doc.setFontSize(12);
+    doc.setTextColor(...dark);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CONSENTIMIENTO INFORMADO — PERFORACIÓN CUTÁNEA', pageW / 2, y, { align: 'center' });
+    y += 10;
+
+    // Línea dorada
+    doc.setDrawColor(...gold);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageW - margin, y);
+    y += 8;
+
+    // Función para sección
+    function section(title) {
+      doc.setFillColor(...lightGray);
+      doc.rect(margin, y - 4, contentW, 7, 'F');
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...gold);
+      doc.text(title.toUpperCase(), margin + 2, y + 0.5);
+      y += 8;
+    }
+
+    // Función para fila
+    function row(label, value) {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...gray);
+      doc.text(label, margin + 2, y);
+      doc.setTextColor(...dark);
+      doc.setFont('helvetica', 'bold');
+      doc.text(String(value || '—'), margin + 70, y);
+      doc.setDrawColor(230, 225, 218);
+      doc.setLineWidth(0.2);
+      doc.line(margin, y + 2, pageW - margin, y + 2);
+      y += 8;
+    }
+
+    // Datos personales
+    section('Datos del cliente');
+    row('Nombre y apellidos', c.nombre_apellidos);
+    row('Edad', c.edad);
+    row('DNI', c.dni);
+    row('Teléfono', c.telefono || '—');
+    row('Ciudad', c.ciudad);
+    if (c.es_menor) {
+      row('Menor de edad', 'Sí');
+      row('Tutor legal', c.tutor_nombre || '—');
+      row('DNI tutor', c.tutor_dni || '—');
+    }
+    y += 2;
+
+    // Procedimiento
+    section('Procedimiento');
+    row('Zona elegida', c.zona_piercing);
+    row('Medicamentos', c.medicamentos || 'No');
+    y += 2;
+
+    // Joyas
+    section('Joyas utilizadas');
+    row('ZUK ZLP · Labret · Titanio grado implante', 'Lote B-2903');
+    row('ZUK ZLP · Barbel · Titanio grado implante', 'Lote B-2906');
+    y += 2;
+
+    // Agujas
+    section('Agujas estériles / Catéter');
+    row('Healcath 20G x 1,29"', 'Lote 31/0957 · Cad. 02/2029');
+    row('Healcath 18G x 1,77"', 'Lote 30/0957 · Cad. 02/2029');
+    row('BD Insyte 16G x 1,77"', 'Lote 2357395 · Cad. 12/2027');
+    y += 2;
+
+    // Consentimientos
+    section('Consentimientos aceptados');
+    row('Información leída y entendida', c.acepta_riesgos ? '✓ Sí' : '✗ No');
+    row('Cuidados postratamiento aceptados', c.acepta_cuidados ? '✓ Sí' : '✗ No');
+    row('Autorización fotografías', c.acepta_fotos ? '✓ Sí' : 'No');
+    row('Fecha de envío', f);
+    y += 4;
+
+    // Firmas
+    section('Firmas');
+    y += 4;
+
+    // Firma cliente
+    if (c.firma_data) {
+      try {
+        doc.addImage(c.firma_data, 'PNG', margin, y, 60, 25);
+      } catch(e) {}
+    } else {
+      doc.setDrawColor(...lightGray);
+      doc.rect(margin, y, 60, 25);
+    }
+    // Firma aplicadora (en blanco)
+    doc.setDrawColor(200, 195, 188);
+    doc.setLineWidth(0.3);
+    doc.rect(pageW - margin - 60, y, 60, 25);
+
+    y += 28;
+    doc.setDrawColor(...dark);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y, margin + 60, y);
+    doc.line(pageW - margin - 60, y, pageW - margin, y);
+    y += 4;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...gray);
+    doc.text('Firma del cliente', margin, y);
+    doc.text(c.nombre_apellidos, margin, y + 4);
+    doc.text('Firma de la aplicadora', pageW - margin - 60, y);
+    doc.text('Rocío Arrebola García', pageW - margin - 60, y + 4);
+    y += 14;
+
+    // Footer
+    doc.setDrawColor(...gold);
+    doc.setLineWidth(0.4);
+    doc.line(margin, y, pageW - margin, y);
+    y += 5;
+    doc.setFontSize(7);
+    doc.setTextColor(160, 155, 148);
+    doc.setFont('helvetica', 'normal');
+    const footer = 'Protección de datos: Responsable: Earpetal Piercing — Rocío Arrebola García (53670242-H). Finalidad: gestión de la relación contractual. Legitimación: art. 6.1.b) y c) RGPD. Derechos: info@earpetal.com · AEPD: www.aepd.es. Según Decreto 35/2005 modificado por Decreto 63/2021.';
+    const footerLines = doc.splitTextToSize(footer, contentW);
+    doc.text(footerLines, margin, y);
+
+    // Generar blob y compartir
+    const pdfBlob = doc.output('blob');
+    const fileName = `consentimiento_${c.nombre_apellidos.replace(/ /g,'_')}_${new Date(c.created_at).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'-')}.pdf`;
+    const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: `Consentimiento — ${c.nombre_apellidos}`,
+      });
+    } else {
+      // Fallback: descarga directa
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url; a.download = fileName; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+  } catch(e) {
+    console.error(e);
+    alert('Error al generar el PDF. Inténtalo de nuevo.');
+  } finally {
+    if (btn) { btn.textContent = 'Compartir PDF'; btn.disabled = false; }
+  }
+}
+  const tutor = c.es_menor ? `TUTOR: ${c.tutor_nombre || '—'} · DNI: ${c.tutor_dni || '—'}` : '';
+
+  // Crear HTML del consentimiento para imprimir/compartir
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consentimiento — ${c.nombre_apellidos}</title>
+<style>
+  body { font-family: Georgia, serif; max-width: 700px; margin: 0 auto; padding: 40px 32px; color: #1a1a1a; font-size: 14px; line-height: 1.7; }
+  .header { text-align: center; border-bottom: 2px solid #b07a35; padding-bottom: 24px; margin-bottom: 32px; }
+  .brand { font-size: 28px; letter-spacing: 0.1em; font-weight: 300; color: #1a1a1a; margin-bottom: 4px; }
+  .brand-sub { font-style: italic; font-size: 16px; color: #b07a35; }
+  .applicator { font-size: 12px; color: #666; margin-top: 8px; }
+  h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: #b07a35; margin: 24px 0 8px; border-bottom: 1px solid #e4dfd6; padding-bottom: 4px; }
+  .row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f0ede8; font-size: 13px; }
+  .lbl { color: #888; min-width: 140px; }
+  .val { font-weight: 500; text-align: right; }
+  .consent-text { background: #faf9f6; border: 1px solid #e4dfd6; padding: 16px; font-size: 12px; line-height: 1.8; margin: 12px 0; }
+  .firma-section { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 48px; gap: 32px; }
+  .firma-box { flex: 1; text-align: center; }
+  .firma-img { max-width: 200px; max-height: 100px; border: 1px solid #e4dfd6; display: block; margin: 0 auto 8px; }
+  .firma-line { border-top: 1px solid #1a1a1a; padding-top: 6px; font-size: 11px; color: #666; }
+  .check { color: #27ae60; font-weight: bold; }
+  .footer { margin-top: 40px; font-size: 10px; color: #999; border-top: 1px solid #e4dfd6; padding-top: 16px; line-height: 1.6; }
+  @media print { body { padding: 20px; } }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">EAR PETAL</div>
+    <div class="brand-sub">piercing</div>
+    <div class="applicator">Rocío Arrebola García · 53670242-H · +34 691806190</div>
+  </div>
+
+  <div style="text-align:center;font-size:16px;font-weight:300;letter-spacing:0.05em;margin-bottom:28px;text-transform:uppercase;">
+    Consentimiento Informado — Perforación Cutánea
+  </div>
+
+  <h3>Datos del cliente</h3>
+  <div class="row"><span class="lbl">Nombre y apellidos</span><span class="val">${c.nombre_apellidos}</span></div>
+  <div class="row"><span class="lbl">Edad</span><span class="val">${c.edad}</span></div>
+  <div class="row"><span class="lbl">DNI</span><span class="val">${c.dni}</span></div>
+  <div class="row"><span class="lbl">Teléfono</span><span class="val">${c.telefono || '—'}</span></div>
+  <div class="row"><span class="lbl">Ciudad</span><span class="val">${c.ciudad}</span></div>
+  ${c.es_menor ? '<div class=\"row\"><span class=\"lbl\">Menor de edad</span><span class=\"val\">Sí</span></div><div class=\"row\"><span class=\"lbl\">Tutor legal</span><span class=\"val\">' + (c.tutor_nombre || '—') + '</span></div><div class=\"row\"><span class=\"lbl\">DNI tutor</span><span class=\"val\">' + (c.tutor_dni || '—') + '</span></div>' : ''}
+
+  <h3>Procedimiento</h3>
+  <div class="row"><span class="lbl">Zona elegida</span><span class="val">${c.zona_piercing}</span></div>
+  <div class="row"><span class="lbl">Medicamentos</span><span class="val">${c.medicamentos || 'No'}</span></div>
+
+  <h3>Joyas utilizadas</h3>
+  <div class="row"><span class="lbl">ZUK ZLP · Labret · Titanio</span><span class="val">Lote B-2903</span></div>
+  <div class="row"><span class="lbl">ZUK ZLP · Barbel · Titanio</span><span class="val">Lote B-2906</span></div>
+
+  <h3>Agujas estériles</h3>
+  <div class="row"><span class="lbl">Healcath 20G x 1,29"</span><span class="val">Lote 31/0957 · Cad. 02/2029</span></div>
+  <div class="row"><span class="lbl">Healcath 18G x 1,77"</span><span class="val">Lote 30/0957 · Cad. 02/2029</span></div>
+  <div class="row"><span class="lbl">BD Insyte 16G x 1,77"</span><span class="val">Lote 2357395 · Cad. 12/2027</span></div>
+
+  <h3>Consentimientos aceptados</h3>
+  <div class="row"><span class="lbl">Información leída y entendida</span><span class="val">${c.acepta_riesgos ? '✓ Sí' : '✗ No'}</span></div>
+  <div class="row"><span class="lbl">Cuidados postratamiento</span><span class="val">${c.acepta_cuidados ? '✓ Sí' : '✗ No'}</span></div>
+  <div class="row"><span class="lbl">Autorización fotografías</span><span class="val">${c.acepta_fotos ? '✓ Sí' : 'No'}</span></div>
+  <div class="row"><span class="lbl">Fecha de envío</span><span class="val">${f}</span></div>
+
+  <div class="firma-section">
+    <div class="firma-box">
+      ${c.firma_data ? '<img class=\"firma-img\" src=\"' + c.firma_data + '\" alt=\"Firma del cliente\">' : '<div style=\"height:80px;border:1px solid #e4dfd6;margin-bottom:8px;\"></div>'}
+      <div class="firma-line">Firma del cliente<br>${c.nombre_apellidos}</div>
+    </div>
+    <div class="firma-box">
+      <div style="height:80px;border:1px solid #e4dfd6;margin-bottom:8px;"></div>
+      <div class="firma-line">Firma de la aplicadora<br>Rocío Arrebola García</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Protección de datos: Responsable: Earpetal Piercing — Rocío Arrebola García (53670242-H). Finalidad: gestión de la relación contractual y cumplimiento de obligación legal. Legitimación: art. 6.1.b) y c) RGPD. Ejercicio de derechos: info@earpetal.com · AEPD: www.aepd.es.<br>
+    Según Anexo 3 del Decreto 35/2005 de 10 de marzo, modificado por Decreto 63/2021 de 28 de abril.
+  </div>
+</body>
+</html>`;
+
+  // Abrir en nueva ventana para imprimir/compartir como PDF
+
 async function deleteConsent(id) {
   if (!confirm('¿Eliminar este consentimiento? Esta acción no se puede deshacer.')) return;
   try {
